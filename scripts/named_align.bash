@@ -21,7 +21,6 @@ cleanup() {
         rm ${REVERSE}
     fi
 }
-
 trap cleanup EXIT
 
 # create the named pipe for forward
