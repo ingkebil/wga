@@ -44,7 +44,7 @@ cat $sam2bambash
 log 'SAM2BAM' 'Starting sam2bam ...'
 COMMAND="bash $sam2bambash"
 log 'SAM2BAM' "$COMMAND"
-`$COMMAND`
+$COMMAND
 log 'SAM2BAM' 'Done.'
 
 # reset trap
