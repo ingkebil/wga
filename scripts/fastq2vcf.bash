@@ -184,6 +184,7 @@ if [[ ! -e ${MPILEUP_OUTFILE} ]]; then
     # cp all mpileup files into one
     log 'MPILEUP' 'Cat-ing to one file ... '
     cat `ls ${MPILEUP_OUTFILE}.*` > ${MPILEUP_OUTFILE}
+    rm ${MPILEUP_OUTFILE}.*
     log 'MPILEUP' 'Done.'
 else
     log 'MPILEUP' "$MPILEUP_OUTFILE Already present!"
