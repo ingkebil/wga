@@ -130,15 +130,15 @@ done
 # sam2bam #
 ###########
 
-# job is dependent on ALIGN to finish first
-SAM2BAM_NAME=sam2bam.$$
-DEPENDENCY=""
-if [[ -n $ALIGN_JOBIDS ]]; then
-    JOINED_ALIGN_JOBIDS=`join : ${ALIGN_JOBIDS[@]}`
-    DEPENDENCY="--dependency=afterok:${JOINED_ALIGN_JOBIDS}"
-fi
 OUTFILE=${OUTDIR}/aln.bam
 if [[ ! -e ${OUTFILE} ]]; then
+    # job is dependent on ALIGN to finish first
+    SAM2BAM_NAME=sam2bam.$$
+    DEPENDENCY=""
+    if [[ -n $ALIGN_JOBIDS ]]; then
+        JOINED_ALIGN_JOBIDS=`join : ${ALIGN_JOBIDS[@]}`
+        DEPENDENCY="--dependency=afterok:${JOINED_ALIGN_JOBIDS}"
+    fi
     COMMAND="sbatch -t 2:00:00 -c 16 -A prod001 -J ${SAM2BAM_NAME} $DEPENDENCY --output=/mnt/hds/proj/bioinfo/LOG/${$}.sam2bam-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.sam2bam-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/sam2bam.bash 16 ${OUTFILE} ${SAM2BAM_INFILES[@]}"
     RS=`$COMMAND`
     SAM2BAM_JOBID=${RS##* }
@@ -148,15 +148,35 @@ else
 fi
 
 ###########
+# mpileup #
+###########
+
+OUTFILE=${OUTDIR}/aln.mpileup
+if [[ ! -e ${OUTFILE} ]]; then
+    MPILEUP_NAME=mpileup.$$
+    MPILEUPDEPENDENCY=""
+    if [[ -n $SAM2BAM_JOBID ]]; then
+        MPILEUPDEPENDENCY="--dependency=afterok:${SAM2BAM_JOBID}"
+    fi
+
+    COMMAND="sbatch -t 4:00:00 -c 1 -A prod001 -J ${MPILEUP_NAME} ${MPILEUPDEPENDENCY} --output=/mnt/hds/proj/bioinfo/LOG/${$}.mpileup-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.mpileup-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/mpileup.bash $REF_GENOME ${OUTDIR}/aln.bam ${OUTFILE}"
+    RS=`$COMMAND`
+    MPILEUP_JOBID=${RS##* }
+    log 'MPILEUP' "$COMMAND"
+else
+    log 'MPILEUP' "$OUTFILE Already present!"
+fi
+
+###########
 # bam2vcf #
 ###########
 
 BAM2VCF_NAME=bam2vcf.$$
 BAM2VCFDEPENDENCY=""
-if [[ -n $SAM2BAM_JOBID ]]; then
-    BAM2VCFDEPENDENCY="--dependency=afterok:${SAM2BAM_JOBID}"
+if [[ -n $MPILEUP_JOBID ]]; then
+    BAM2VCFDEPENDENCY="--dependency=afterok:${MPILEUP_JOBID}"
 fi
-COMMAND="sbatch -t 24:00:00 -c 1 -A prod001 -J ${BAM2VCF_NAME} ${BAM2VCFDEPENDENCY} --output=/mnt/hds/proj/bioinfo/LOG/${$}.bam2vcf-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.bam2vcf-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/bam2vcf.bash $REF_GENOME ${OUTDIR}/aln.bam ${OUTDIR}"
+COMMAND="sbatch -t 12:00:00 -c 1 -A prod001 -J ${BAM2VCF_NAME} ${BAM2VCFDEPENDENCY} --output=/mnt/hds/proj/bioinfo/LOG/${$}.bam2vcf-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.bam2vcf-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/bam2vcf.bash ${OUTDIR}/aln.mpileup ${OUTDIR}"
 RS=`$COMMAND`
 log 'BAM2VCF' "$COMMAND"
 
