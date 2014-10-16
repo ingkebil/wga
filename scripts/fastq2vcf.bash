@@ -54,15 +54,6 @@ cleanup() {
     done
 }
 
-clean_region_files() {
-    # remove the regions files created during MPILEUP
-    if [[ -n ${REGION_FILES[@]} ]]; then
-        for REGION_FILE in ${REGION_FILES[@]}; do
-            rm "$REGION_FILE"
-        done
-    fi
-}
-
 # In case scripting went wrong .. I don't have to cancel the submitted jobs myself :)
 cancel() {
     if [[ -n $ALIGN_JOBIDS ]]; then
@@ -75,8 +66,6 @@ cancel() {
         echo "Canceling $SAM2BAM_JOBID"
         scancel $SAM2BAM_JOBID
     fi
-
-    clean_region_files
 }
 trap cancel EXIT
 
@@ -178,29 +167,24 @@ if [[ ! -e ${MPILEUP_OUTFILE} ]]; then
     log 'SEQLEN' 'Done.'
 
     # start op a process of samtools for each region
-    REGION_FILES=() # holds a list of region files so we can clean them up on exit
     i=0
     while read REGION; do
-        # create a regions file for this process
-        REGION_FILE=`mktemp`
-        echo $REGION > $REGION_FILE
-        REGION_FILES+=($REGION_FILE)
-
-        # launch!
         LOCAL_MPILEUP_OUTFILE=${MPILEUP_OUTFILE}.${i}
-        COMMAND="sbatch -t 4:00:00 -c 1 -A prod001 -J ${MPILEUP_NAME} ${MPILEUPDEPENDENCY} --output=/mnt/hds/proj/bioinfo/LOG/${$}.mpileup-${i}-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.mpileup-${i}-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/samtools_mpileup.bash $REF_GENOME $REGION_FILE ${OUTDIR}/aln.bam ${LOCAL_MPILEUP_OUTFILE}"
-        RS=`$COMMAND`
-        MPILEUP_JOBIDS[${i}]=${RS##* }
-        log 'MPILEUP' "$COMMAND"
+        if [[ ! -e ${LOCAL_MPILEUP_OUTFILE} ]]; then
+            COMMAND="sbatch -t 4:00:00 -c 1 -A prod001 -J ${MPILEUP_NAME} ${MPILEUPDEPENDENCY} --output=/mnt/hds/proj/bioinfo/LOG/${$}.mpileup-${i}-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.mpileup-${i}-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/samtools_mpileup.bash $REF_GENOME ${REGION// /.} ${SAM2BAM_OUTFILE} ${LOCAL_MPILEUP_OUTFILE}"
+            RS=`$COMMAND`
+            MPILEUP_JOBIDS[${i}]=${RS##* }
+            log 'MPILEUP' "$COMMAND"
+        else
+            log 'MPILEUP' "${LOCAL_MPILEUP_OUTFILE} Already present!"
+        fi
         i=$(( $i + 1 ))
     done < $REGIONS_FILE
 
-    # create the named pipe for forward
-    log 'MPILEUP' 'Creating named pipe for cat ... '
-    mkfifo ${MPILEUP_OUTFILE}
-    cat `ls ${MPILEUP_OUTFILE}.*` > ${MPILEUP_OUTFILE} &
+    # cp all mpileup files into one
+    log 'MPILEUP' 'Cat-ing to one file ... '
+    cat `ls ${MPILEUP_OUTFILE}.*` > ${MPILEUP_OUTFILE}
     log 'MPILEUP' 'Done.'
-
 else
     log 'MPILEUP' "$MPILEUP_OUTFILE Already present!"
 fi

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Standalone multi-processed mpile script
+
 # exit on errr
 set -e
 
