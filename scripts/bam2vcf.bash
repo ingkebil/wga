@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# exit on errr
+set -e
+
 REFFILE=${1}
 BAMFILE=${2}
 OUTDIR=${3}
@@ -7,20 +10,30 @@ OUTDIR=${3}
 # import logging functionality
 source log.bash
 
+# first, calculte the lengths of all reference regions in the ref file
+REGIONS=`mktemp`
+awk seqlength.awk < $REFFILE > $REGIONS
 
-# TODO maybe split up the mpileup creation to speed up the whole process
-# awk '/^>/ {if (seqlen){print seqlen}; print ;seqlen=0;next; } { seqlen = seqlen +length($0)}END{print seqlen}' file.fa
+# start op a process of samtools for each region
+i=0
+while read REGION; do
+    R=`mktemp`
+    echo $REGION > $R
+    # create mpileup file
+    MPILEUPOUTFILE="${OUTDIR}/aln.mpileup"
+    if [[ ! -e ${MPILEUPOUTFILE} ]]; then
+        COMMAND="samtools mpileup -Bf ${REFFILE} -l $R ${BAMFILE}"
+        log 'MPILEUP' "$COMMAND > ${MPILEUPOUTFILE}.$i"
+        $COMMAND > ${MPILEUPOUTFILE}
+        log 'MPILEUP' 'done.'
+    else
+        log 'MPILEUP' "$MPILEUPOUTFILE already present!"
+    fi
+done < $REGIONS
 
-# create mpileup file
-MPILEUPOUTFILE="${OUTDIR}/aln.mpileup"
-if [[ ! -e ${MPILEUPOUTFILE} ]]; then
-    COMMAND="samtools mpileup -Bf ${REFFILE} ${BAMFILE}"
-    log 'MPILEUP' "$COMMAND > ${MPILEUPOUTFILE}"
-    $COMMAND > ${MPILEUPOUTFILE}
-    log 'MPILEUP' 'done.'
-else
-    log 'MPILEUP' "$MPILEUPOUTFILE already present!"
-fi
+# cat all the mpileup files together
+# TODO make a named pipe for this
+cat `ls $OUTDIR/${MPILEUPOUTFILE}.*` > ${MPILEUPOUTFILE}
 
 REGIONSOUTFILE="${OUTDIR}/aln.regions"
 if [[ ! -e ${REGIONSOUTFILE} ]]; then
