@@ -54,6 +54,15 @@ cleanup() {
     done
 }
 
+clean_region_files() {
+    # remove the regions files created during MPILEUP
+    if [[ -n ${REGION_FILES[@]} ]]; then
+        for REGION_FILE in ${REGION_FILES[@]}; do
+            rm "$REGION_FILE"
+        done
+    fi
+}
+
 # In case scripting went wrong .. I don't have to cancel the submitted jobs myself :)
 cancel() {
     if [[ -n $ALIGN_JOBIDS ]]; then
@@ -66,6 +75,8 @@ cancel() {
         echo "Canceling $SAM2BAM_JOBID"
         scancel $SAM2BAM_JOBID
     fi
+
+    clean_region_files
 }
 trap cancel EXIT
 
@@ -113,25 +124,25 @@ log 'SYMLINKS' 'Done'
 # SAM2BAM_INFILES, ALIGN_JOBIDS
 ALIGN_NAME=named_align.$$
 for i in `seq 1 ${NUM_NODES}`; do
-    OUTFILE=${OUTDIR}/aln.${i}.sam
-    if [[ ! -e ${OUTFILE} ]]; then
+    ALIGN_OUTFILE=${OUTDIR}/aln.${i}.sam
+    if [[ ! -e ${ALIGN_OUTFILE} ]]; then
         ALIGN_INDIR=${INDIR}/${i}/
-        COMMAND="sbatch -c 16 -N 1 -t 6:00:00 -A prod001 -J ${ALIGN_NAME} --output=${LOGDIR}/${$}.named_wgalign-${i}-%j.out --error=${LOGDIR}/${$}.named_wgalign-${i}-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/named_align.bash ${REF_GENOME} ${ALIGN_INDIR} ${OUTFILE} \"${FORWARD_PATTERN}\" \"${REVERSE_PATTERN}\""
+        COMMAND="sbatch -c 16 -N 1 -t 6:00:00 -A prod001 -J ${ALIGN_NAME} --output=${LOGDIR}/${$}.named_wgalign-${i}-%j.out --error=${LOGDIR}/${$}.named_wgalign-${i}-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/named_align.bash ${REF_GENOME} ${ALIGN_INDIR} ${ALIGN_OUTFILE} \"${FORWARD_PATTERN}\" \"${REVERSE_PATTERN}\""
         RS=`$COMMAND`
         ALIGN_JOBIDS[$(( $i - 1 ))]=${RS##* }
         log 'ALIGN' "$COMMAND"
     else
-        log 'ALIGN' "$OUTFILE already present!"
+        log 'ALIGN' "$ALIGN_OUTFILE already present!"
     fi
-    SAM2BAM_INFILES[$(( $i - 1 ))]=${OUTFILE}
+    SAM2BAM_INFILES[$(( $i - 1 ))]=${ALIGN_OUTFILE}
 done
 
 ###########
 # sam2bam #
 ###########
 
-OUTFILE=${OUTDIR}/aln.bam
-if [[ ! -e ${OUTFILE} ]]; then
+SAM2BAM_OUTFILE=${OUTDIR}/aln.bam
+if [[ ! -e ${SAM2BAM_OUTFILE} ]]; then
     # job is dependent on ALIGN to finish first
     SAM2BAM_NAME=sam2bam.$$
     DEPENDENCY=""
@@ -139,32 +150,59 @@ if [[ ! -e ${OUTFILE} ]]; then
         JOINED_ALIGN_JOBIDS=`join : ${ALIGN_JOBIDS[@]}`
         DEPENDENCY="--dependency=afterok:${JOINED_ALIGN_JOBIDS}"
     fi
-    COMMAND="sbatch -t 2:00:00 -c 16 -A prod001 -J ${SAM2BAM_NAME} $DEPENDENCY --output=/mnt/hds/proj/bioinfo/LOG/${$}.sam2bam-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.sam2bam-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/sam2bam.bash 16 ${OUTFILE} ${SAM2BAM_INFILES[@]}"
+    COMMAND="sbatch -t 2:00:00 -c 16 -A prod001 -J ${SAM2BAM_NAME} $DEPENDENCY --output=/mnt/hds/proj/bioinfo/LOG/${$}.sam2bam-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.sam2bam-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/sam2bam.bash 16 ${SAM2BAM_OUTFILE} ${SAM2BAM_INFILES[@]}"
     RS=`$COMMAND`
     SAM2BAM_JOBID=${RS##* }
     log 'SAM2BAM' "$COMMAND"
 else
-    log 'SAM2BAM' "$OUTFILE Already present!"
+    log 'SAM2BAM' "$SAM2BAM_OUTFILE Already present!"
 fi
 
 ###########
 # mpileup #
 ###########
 
-OUTFILE=${OUTDIR}/aln.mpileup
-if [[ ! -e ${OUTFILE} ]]; then
+MPILEUP_OUTFILE=${OUTDIR}/aln.mpileup
+if [[ ! -e ${MPILEUP_OUTFILE} ]]; then
     MPILEUP_NAME=mpileup.$$
     MPILEUPDEPENDENCY=""
     if [[ -n $SAM2BAM_JOBID ]]; then
         MPILEUPDEPENDENCY="--dependency=afterok:${SAM2BAM_JOBID}"
     fi
 
-    COMMAND="sbatch -t 4:00:00 -c 1 -A prod001 -J ${MPILEUP_NAME} ${MPILEUPDEPENDENCY} --output=/mnt/hds/proj/bioinfo/LOG/${$}.mpileup-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.mpileup-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/mpileup.bash $REF_GENOME ${OUTDIR}/aln.bam ${OUTFILE}"
-    RS=`$COMMAND`
-    MPILEUP_JOBID=${RS##* }
-    log 'MPILEUP' "$COMMAND"
+    # first, calculate the lengths of all reference regions in the ref file
+    REGIONS_FILE=`mktemp`
+    COMMAND="${SCRIPTSDIR}/seqlength.awk"
+    log 'SEQLEN' "$COMMAND < $REF_GENOME > $REGIONS_FILE"
+    $COMMAND < $REF_GENOME > $REGIONS_FILE
+    log 'SEQLEN' 'Done.'
+
+    # start op a process of samtools for each region
+    REGION_FILES=() # holds a list of region files so we can clean them up on exit
+    i=0
+    while read REGION; do
+        # create a regions file for this process
+        REGION_FILE=`mktemp`
+        echo $REGION > $REGION_FILE
+        REGION_FILES+=($REGION_FILE)
+
+        # launch!
+        LOCAL_MPILEUP_OUTFILE=${MPILEUP_OUTFILE}.${i}
+        COMMAND="sbatch -t 4:00:00 -c 1 -A prod001 -J ${MPILEUP_NAME} ${MPILEUPDEPENDENCY} --output=/mnt/hds/proj/bioinfo/LOG/${$}.mpileup-${i}-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.mpileup-${i}-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/samtools_mpileup.bash $REF_GENOME $REGION_FILE ${OUTDIR}/aln.bam ${LOCAL_MPILEUP_OUTFILE}"
+        RS=`$COMMAND`
+        MPILEUP_JOBIDS[${i}]=${RS##* }
+        log 'MPILEUP' "$COMMAND"
+        i=$(( $i + 1 ))
+    done < $REGIONS_FILE
+
+    # create the named pipe for forward
+    log 'MPILEUP' 'Creating named pipe for cat ... '
+    mkfifo ${MPILEUP_OUTFILE}
+    cat `ls ${MPILEUP_OUTFILE}.*` > ${MPILEUP_OUTFILE} &
+    log 'MPILEUP' 'Done.'
+
 else
-    log 'MPILEUP' "$OUTFILE Already present!"
+    log 'MPILEUP' "$MPILEUP_OUTFILE Already present!"
 fi
 
 ###########
@@ -173,10 +211,11 @@ fi
 
 BAM2VCF_NAME=bam2vcf.$$
 BAM2VCFDEPENDENCY=""
-if [[ -n $MPILEUP_JOBID ]]; then
-    BAM2VCFDEPENDENCY="--dependency=afterok:${MPILEUP_JOBID}"
+if [[ -n $MPILEUP_JOBIDS ]]; then
+    JOINED_MPILEUP_JOBIDS=`join : ${MPILEUP_JOBIDS[@]}`
+    BAM2VCFDEPENDENCY="--dependency=afterok:${JOINED_MPILEUP_JOBIDS}"
 fi
-COMMAND="sbatch -t 12:00:00 -c 1 -A prod001 -J ${BAM2VCF_NAME} ${BAM2VCFDEPENDENCY} --output=/mnt/hds/proj/bioinfo/LOG/${$}.bam2vcf-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.bam2vcf-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/bam2vcf.bash ${OUTDIR}/aln.mpileup ${OUTDIR}"
+COMMAND="sbatch -t 12:00:00 -c 1 -A prod001 -J ${BAM2VCF_NAME} ${BAM2VCFDEPENDENCY} --output=/mnt/hds/proj/bioinfo/LOG/${$}.bam2vcf-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.bam2vcf-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/bam2vcf.bash ${MPILEUP_OUTFILE} ${OUTDIR}"
 RS=`$COMMAND`
 log 'BAM2VCF' "$COMMAND"
 
