@@ -182,10 +182,15 @@ if [[ ! -e ${MPILEUP_OUTFILE} ]]; then
     done < $REGIONS_FILE
 
     # cp all mpileup files into one
-    log 'MPILEUP' 'Cat-ing to one file ... '
-    cat `ls ${MPILEUP_OUTFILE}.*` > ${MPILEUP_OUTFILE}
-    rm ${MPILEUP_OUTFILE}.*
-    log 'MPILEUP' 'Done.'
+    CAT_NAME=cat.$$
+    if [[ -n $MPILEUP_JOBIDS ]]; then
+        JOINED_MPILEUP_JOBIDS=`join : ${MPILEUP_JOBIDS[@]}`
+        CATDEPENDENCY="--dependency=afterok:${JOINED_MPILEUP_JOBIDS}"
+    fi
+    COMMAND="sbatch -t 1:00:00 -c 1 -A prod001 -J ${CAT_NAME} ${CATDEPENDENCY} --output=/mnt/hds/proj/bioinfo/LOG/${$}.cat-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.cat-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/cat_mpileups.bash ${MPILEUP_OUTFILE}"
+    RS=`$COMMAND`
+    CAT_JOBID=${RS##* }
+    log 'CAT' "$COMMAND"
 else
     log 'MPILEUP' "$MPILEUP_OUTFILE Already present!"
 fi
@@ -196,9 +201,8 @@ fi
 
 BAM2VCF_NAME=bam2vcf.$$
 BAM2VCFDEPENDENCY=""
-if [[ -n $MPILEUP_JOBIDS ]]; then
-    JOINED_MPILEUP_JOBIDS=`join : ${MPILEUP_JOBIDS[@]}`
-    BAM2VCFDEPENDENCY="--dependency=afterok:${JOINED_MPILEUP_JOBIDS}"
+if [[ -n $CAT_JOBID ]]; then
+    BAM2VCFDEPENDENCY="--dependency=afterok:${CAT_JOBID}"
 fi
 COMMAND="sbatch -t 12:00:00 -c 1 -A prod001 -J ${BAM2VCF_NAME} ${BAM2VCFDEPENDENCY} --output=/mnt/hds/proj/bioinfo/LOG/${$}.bam2vcf-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.bam2vcf-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/bam2vcf.bash ${MPILEUP_OUTFILE} ${OUTDIR}"
 RS=`$COMMAND`
