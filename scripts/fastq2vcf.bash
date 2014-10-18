@@ -66,6 +66,11 @@ cancel() {
         echo "Canceling $SAM2BAM_JOBID"
         scancel $SAM2BAM_JOBID
     fi
+
+    # in the MPILEUP phase, remove the regions file
+    if [[ -e $REGIONS_FILE ]]; then
+        rm $REGIONS_FILE
+    fi
 }
 trap cancel EXIT
 
@@ -180,6 +185,9 @@ if [[ ! -e ${MPILEUP_OUTFILE} ]]; then
         fi
         i=$(( $i + 1 ))
     done < $REGIONS_FILE
+
+    # remove the regions file
+    rm $REGIONS_FILE
 
     # cp all mpileup files into one
     CAT_NAME=cat.$$
