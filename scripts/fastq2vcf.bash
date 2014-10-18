@@ -144,7 +144,7 @@ if [[ ! -e ${SAM2BAM_OUTFILE} ]]; then
         JOINED_ALIGN_JOBIDS=`join : ${ALIGN_JOBIDS[@]}`
         DEPENDENCY="--dependency=afterok:${JOINED_ALIGN_JOBIDS}"
     fi
-    COMMAND="sbatch -t 2:00:00 -c 16 -A prod001 -J ${SAM2BAM_NAME} $DEPENDENCY --output=/mnt/hds/proj/bioinfo/LOG/${$}.sam2bam-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.sam2bam-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/sam2bam.bash 16 ${SAM2BAM_OUTFILE} ${SAM2BAM_INFILES[@]}"
+    COMMAND="sbatch -t 4:00:00 -c 16 -A prod001 -J ${SAM2BAM_NAME} $DEPENDENCY --output=/mnt/hds/proj/bioinfo/LOG/${$}.sam2bam-%j.out --error=/mnt/hds/proj/bioinfo/LOG/${$}.sam2bam-%j.err --mail-type=${MAILTYPE} --mail-user=${MAILUSER} ${SCRIPTSDIR}/sam2bam.bash 16 ${SAM2BAM_OUTFILE} ${SAM2BAM_INFILES[@]}"
     RS=`$COMMAND`
     SAM2BAM_JOBID=${RS##* }
     log 'SAM2BAM' "$COMMAND"
