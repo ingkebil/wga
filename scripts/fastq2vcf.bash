@@ -89,9 +89,10 @@ if [[ ${NUM_FILES_FORWARD} -lt ${NUM_NODES} ]]; then
 fi
 
 # make sure the fastq files are present and have size bigger than 0
+
 for f in `ls -1 ${INDIR}/${FORWARD_PATTERN} ${INDIR}/${REVERSE_PATTERN}`; do
     if [[ ! -s $f ]]; then
-        log 'PREPROC' "$f is size zero!"
+        error 'PREPROC' "$f is size zero!"
         exit 1
     fi
 done
