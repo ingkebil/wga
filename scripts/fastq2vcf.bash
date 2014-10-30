@@ -39,7 +39,7 @@ fi
 # functions #
 #############
 
-source log.bash
+source `dirname $0`/log.bash
 
 function join { local IFS="$1"; shift; echo "$*"; }
 
@@ -73,6 +73,20 @@ cancel() {
     fi
 }
 trap cancel EXIT
+
+###########
+# preproc #
+###########
+
+# make sure we have enough files to run on the amount of nodes suggested
+
+NUM_FILES_FORWARD=`ls -1 ${INDIR}/${FORWARD_PATTERN} | wc -l` # number of files for each orientation
+if [[ ${NUM_FILES_FORWARD} -lt ${NUM_NODES} ]]; then
+    OLD_NUM_NODES=${NUM_NODES}
+    NUM_NODES=${NUM_FILES_FORWARD} # the max amount of nodes is the amount files for an orientation
+    log 'PREPROC' "Reduced the amount of nodes from ${OLD_NUM_NODES} to ${NUM_NODES}"
+    unset OLD_NUM_NODES
+fi
 
 #######################
 # create symlink dirs #
