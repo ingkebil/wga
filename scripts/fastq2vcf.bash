@@ -75,7 +75,7 @@ cancel() {
 trap cancel EXIT
 
 ###########
-# preproc #
+# PREPROC #
 ###########
 
 # make sure we have enough files to run on the amount of nodes suggested
@@ -87,6 +87,14 @@ if [[ ${NUM_FILES_FORWARD} -lt ${NUM_NODES} ]]; then
     log 'PREPROC' "Reduced the amount of nodes from ${OLD_NUM_NODES} to ${NUM_NODES}"
     unset OLD_NUM_NODES
 fi
+
+# make sure the fastq files are present and have size bigger than 0
+for f in `ls -1 ${INDIR}/${FORWARD_PATTERN} ${INDIR}/${REVERSE_PATTERN}`; do
+    if [[ ! -s $f ]]; then
+        log 'PREPROC' "$f is size zero!"
+        exit 1
+    fi
+done
 
 #######################
 # create symlink dirs #
